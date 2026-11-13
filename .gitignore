@@ -1,0 +1,18 @@
+# Delphi build products and local IDE state
+Win32/
+Win64/
+*.dcu
+*.exe
+*.rsm
+*.map
+*.tds
+*.identcache
+*.dproj.local
+
+# Dependencies are restored by the GitHub Actions build workflow
+modules/
+
+# Delphi backup files
+*.~*
+*.bak
+*.tmp

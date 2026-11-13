@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-delphi-project:
+    name: Validate Delphi project
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate project metadata and source layout
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $requiredFiles = @(
+            'ITDevConDemo.dpr',
+            'ITDevConDemo.dproj',
+            'ITDevConController.pas',
+            'boss.json'
+          )
+          foreach ($file in $requiredFiles) {
+            if (-not (Test-Path -LiteralPath $file)) {
+              throw "Required file not found: $file"
+            }
+          }
+
+          $dpr = Get-Content -LiteralPath 'ITDevConDemo.dpr' -Raw
+          $controller = Get-Content -LiteralPath 'ITDevConController.pas' -Raw
+          $project = Get-Content -LiteralPath 'ITDevConDemo.dproj' -Raw
+
+          foreach ($token in @('TMVCListener', 'SetPort(8080)', 'TITDevConController')) {
+            if ($dpr -notmatch [regex]::Escape($token)) {
+              throw "ITDevConDemo.dpr is missing expected token: $token"
+            }
+          }
+
+          foreach ($route in @('/hello', '/users', '/activities', '/stats')) {
+            if ($controller -notmatch [regex]::Escape($route)) {
+              throw "Expected API route not found: $route"
+            }
+          }
+
+          if ($project -match 'ITDevConDemo\\backend\\delphi') {
+            throw 'The project contains an obsolete absolute DMVCFramework path.'
+          }
+
+          Write-Host 'Delphi project validation completed successfully.'
+
+      - name: Upload project files for the talk demo
+        uses: actions/upload-artifact@v4
+        with:
+          name: delphi-project-sources
+          path: |
+            ITDevConDemo.dpr
+            ITDevConDemo.dproj
+            ITDevConController.pas
+            boss.json
+          if-no-files-found: error
