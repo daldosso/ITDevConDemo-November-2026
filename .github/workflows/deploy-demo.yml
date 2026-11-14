@@ -21,26 +21,14 @@ jobs:
       name: demo
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Restore DelphiMVCFramework and LoggerPro
+      - name: Verify IDE build input
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force -Path modules | Out-Null
-          git clone --depth 1 --branch v3.5.0-silicon-rc9 https://github.com/danieleteti/delphimvcframework.git modules/dmvcframework
-          git clone --depth 1 --branch v2.1.2 https://github.com/danieleteti/loggerpro.git modules/loggerpro
-
-      - name: Build Release executable
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $rsvars = 'C:\Program Files (x86)\Embarcadero\Studio\37.0\bin\rsvars.bat'
-          if (-not (Test-Path -LiteralPath $rsvars)) {
-            throw "Delphi 13 environment script not found: $rsvars"
+          $sourceExe = 'C:\ITDevCon-demo\build-input\ITDevConDemo.exe'
+          if (-not (Test-Path -LiteralPath $sourceExe)) {
+            throw "IDE build input not found: $sourceExe. Run the 'Package IDE build' workflow after compiling in Delphi."
           }
-          cmd /c "call `"$rsvars`" && msbuild ITDevConDemo.dproj /t:Build /p:Config=Release /p:Platform=Win64 /v:minimal"
 
       - name: Deploy to the local demo folder
         shell: pwsh
@@ -52,7 +40,7 @@ jobs:
           $releaseId = $env:RELEASE_ID
           $releaseDir = Join-Path $deployRoot "releases\$releaseId"
           $currentDir = Join-Path $deployRoot 'current'
-          $sourceExe = Join-Path $env:GITHUB_WORKSPACE 'Win64\Release\ITDevConDemo.exe'
+          $sourceExe = 'C:\ITDevCon-demo\build-input\ITDevConDemo.exe'
 
           if (-not (Test-Path -LiteralPath $sourceExe)) {
             throw "Release executable not found: $sourceExe"

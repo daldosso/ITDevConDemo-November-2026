@@ -1,51 +1,49 @@
-name: Delphi build
+name: Package IDE build
 
 on:
   workflow_dispatch:
     inputs:
-      configuration:
-        description: Build configuration
+      source_executable:
+        description: Executable produced by the Delphi IDE
         required: true
-        default: Debug
-        type: choice
-        options:
-          - Debug
-          - Release
+        default: C:\dev\Personal\ITDevConDemo-November-2026\Win64\Debug\ITDevConDemo.exe
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  build:
-    # A self-hosted runner is intentional: Delphi is licensed software and is
-    # not installed on GitHub-hosted runners.
+  package:
+    # Delphi Community Edition builds in the IDE; this job packages its output.
     runs-on: [self-hosted, windows, delphi]
+    environment:
+      name: demo
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Restore DelphiMVCFramework and LoggerPro
+      - name: Stage the executable built by the IDE
         shell: pwsh
+        env:
+          SOURCE_EXECUTABLE: ${{ inputs.source_executable }}
         run: |
           $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force -Path modules | Out-Null
-          git clone --depth 1 --branch v3.5.0-silicon-rc9 https://github.com/danieleteti/delphimvcframework.git modules/dmvcframework
-          git clone --depth 1 --branch v2.1.2 https://github.com/danieleteti/loggerpro.git modules/loggerpro
+          $sourceExe = $env:SOURCE_EXECUTABLE
+          $stagingDir = 'C:\ITDevCon-demo\build-input'
+          $stagedExe = Join-Path $stagingDir 'ITDevConDemo.exe'
 
-      - name: Build Win64 executable
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $rsvars = 'C:\Program Files (x86)\Embarcadero\Studio\37.0\bin\rsvars.bat'
-          if (-not (Test-Path -LiteralPath $rsvars)) {
-            throw "Delphi 13 environment script not found: $rsvars"
+          if (-not (Test-Path -LiteralPath $sourceExe -PathType Leaf)) {
+            throw "IDE executable not found: $sourceExe"
           }
-          cmd /c "call `"$rsvars`" && msbuild ITDevConDemo.dproj /t:Build /p:Config=${{ inputs.configuration }} /p:Platform=Win64 /v:minimal"
+          New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
+          Copy-Item -LiteralPath $sourceExe -Destination $stagedExe -Force
+          Get-FileHash -LiteralPath $stagedExe -Algorithm SHA256 |
+            Select-Object Algorithm, Hash, Path | ConvertTo-Json |
+            Set-Content -LiteralPath (Join-Path $stagingDir 'build.json') -Encoding utf8
 
-      - name: Upload executable
+      - name: Upload staged executable
         uses: actions/upload-artifact@v4
         with:
-          name: ITDevConDemo-${{ inputs.configuration }}-Win64
-          path: Win64/${{ inputs.configuration }}/ITDevConDemo.exe
+          name: ITDevConDemo-IDE-build-${{ github.run_number }}
+          path: |
+            C:\ITDevCon-demo\build-input\ITDevConDemo.exe
+            C:\ITDevCon-demo\build-input\build.json
           if-no-files-found: error

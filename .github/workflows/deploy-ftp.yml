@@ -21,19 +21,6 @@ jobs:
       name: ftp-demo
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Build Release executable
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $rsvars = 'C:\Program Files (x86)\Embarcadero\Studio\37.0\bin\rsvars.bat'
-          if (-not (Test-Path -LiteralPath $rsvars)) {
-            throw "Delphi 13 environment script not found: $rsvars"
-          }
-          cmd /c "call `"$rsvars`" && msbuild ITDevConDemo.dproj /t:Build /p:Config=Release /p:Platform=Win64 /v:minimal"
-
       - name: Upload executable by FTP
         shell: pwsh
         env:
@@ -46,6 +33,9 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:FTP_URL) -or [string]::IsNullOrWhiteSpace($env:FTP_USERNAME) -or [string]::IsNullOrWhiteSpace($env:FTP_PASSWORD)) {
             throw 'Configure FTP_URL plus FTP_USERNAME and FTP_PASSWORD in the ftp-demo Environment before deploying.'
           }
-          $sourceExe = Join-Path $env:GITHUB_WORKSPACE 'Win64\Release\ITDevConDemo.exe'
+          $sourceExe = 'C:\ITDevCon-demo\build-input\ITDevConDemo.exe'
+          if (-not (Test-Path -LiteralPath $sourceExe)) {
+            throw "IDE build input not found: $sourceExe. Run the 'Package IDE build' workflow after compiling in Delphi."
+          }
           $remoteUrl = "$($env:FTP_URL.TrimEnd('/'))/$($env:REMOTE_PATH.Trim('/'))/ITDevConDemo.exe"
           curl.exe --fail --silent --show-error --ftp-create-dirs --user "$($env:FTP_USERNAME):$($env:FTP_PASSWORD)" --upload-file $sourceExe $remoteUrl
