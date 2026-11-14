@@ -5,6 +5,16 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      target_environment:
+        description: Environment to deploy
+        required: true
+        default: development
+        type: choice
+        options:
+          - development
+          - staging
+          - production
 
 permissions:
   contents: read
@@ -18,7 +28,9 @@ jobs:
     name: Smoke test staged API
     runs-on: [self-hosted, windows, delphi]
     environment:
-      name: demo
+      name: ${{ inputs.target_environment || 'development' }}
+    env:
+      DEMO_API_TOKEN: ${{ secrets.DEMO_API_TOKEN }}
 
     steps:
       - name: Start API and verify core endpoints
@@ -31,6 +43,9 @@ jobs:
 
           if (-not (Test-Path -LiteralPath $sourceExe -PathType Leaf)) {
             throw "IDE build input not found: $sourceExe. Run the 'Package IDE build' workflow after compiling in Delphi."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:DEMO_API_TOKEN)) {
+            throw 'The DEMO_API_TOKEN secret is not configured for this GitHub Environment.'
           }
           if (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) {
             throw "Test port $port is already in use."
@@ -55,11 +70,14 @@ jobs:
             $users = Invoke-RestMethod -Uri "$baseUrl/users" -TimeoutSec 5
             if ($users.Count -lt 10) { throw "Expected at least 10 users, got $($users.Count)." }
 
+            $authenticatedUser = Invoke-RestMethod -Uri "$baseUrl/users-auth/1" -Headers @{ Authorization = "Bearer $env:DEMO_API_TOKEN" } -TimeoutSec 5
+            if ($authenticatedUser.auth -ne 'ok') { throw 'Authenticated endpoint did not confirm the token.' }
+
             $activity = Invoke-RestMethod -Uri "$baseUrl/activities/301" -TimeoutSec 5
             if ($activity.id -ne 301 -or $activity.map.resource_state -ne 3) {
               throw "Unexpected activity response: $($activity | ConvertTo-Json -Depth 5 -Compress)"
             }
-            Write-Host 'API smoke tests passed.'
+            Write-Host 'API smoke tests passed, including the authenticated endpoint.'
           } finally {
             if (-not $process.HasExited) {
               Stop-Process -Id $process.Id -Force
@@ -71,7 +89,9 @@ jobs:
     needs: smoke-test
     runs-on: [self-hosted, windows, delphi]
     environment:
-      name: demo
+      name: ${{ inputs.target_environment || 'development' }}
+    env:
+      DEPLOYMENT_ENVIRONMENT: ${{ inputs.target_environment || 'development' }}
 
     steps:
       - name: Verify IDE build input
@@ -89,7 +109,7 @@ jobs:
           RELEASE_ID: ${{ github.run_number }}-${{ github.sha }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $deployRoot = 'C:\ITDevCon-demo'
+          $deployRoot = Join-Path 'C:\ITDevCon-demo\environments' $env:DEPLOYMENT_ENVIRONMENT
           $releaseId = $env:RELEASE_ID
           $releaseDir = Join-Path $deployRoot "releases\$releaseId"
           $currentDir = Join-Path $deployRoot 'current'
