@@ -1,0 +1,62 @@
+name: Rollback demo deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Release to restore, for example 42-<40-character commit SHA>
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-demo
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    runs-on: [self-hosted, windows, delphi]
+    environment:
+      name: demo
+
+    steps:
+      - name: Restore the selected release
+        shell: pwsh
+        env:
+          RELEASE_ID: ${{ inputs.release_id }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $deployRoot = 'C:\ITDevCon-demo'
+          $releaseId = $env:RELEASE_ID
+          $releasesDir = Join-Path $deployRoot 'releases'
+          $releaseDir = Join-Path $releasesDir $releaseId
+          $currentDir = Join-Path $deployRoot 'current'
+          $backupDir = Join-Path $deployRoot 'backups'
+
+          # Prevent a workflow input from addressing a path outside releases.
+          if ($releaseId -notmatch '^\d+-[0-9a-f]{40}$') {
+            throw 'release_id must be in the form <run number>-<40-character commit SHA>.'
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $releaseDir 'ITDevConDemo.exe'))) {
+            throw "Cannot roll back: release '$releaseId' does not contain ITDevConDemo.exe."
+          }
+
+          if (Test-Path -LiteralPath $currentDir) {
+            New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
+            $rollbackBackup = Join-Path $backupDir "before-rollback-$((Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss')).zip"
+            Compress-Archive -Path (Join-Path $currentDir '*') -DestinationPath $rollbackBackup -CompressionLevel Optimal -Force
+            Remove-Item -LiteralPath $currentDir -Recurse -Force
+          }
+
+          Copy-Item -LiteralPath $releaseDir -Destination $currentDir -Recurse -Force
+          @{
+            restored_release = $releaseId
+            restored_at_utc = (Get-Date).ToUniversalTime().ToString('o')
+            workflow_run = $env:GITHUB_RUN_ID
+          } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $currentDir 'rollback.json') -Encoding utf8
+
+          if (-not (Test-Path -LiteralPath (Join-Path $currentDir 'ITDevConDemo.exe'))) {
+            throw 'Rollback verification failed: current executable is missing.'
+          }

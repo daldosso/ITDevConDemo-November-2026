@@ -18,7 +18,7 @@ begin
     LServerListener := TMVCListener.Create(
       TMVCListenerProperties.New
         .SetName('Listener1')
-        .SetPort(8080)
+        .SetPort(8081)
         .SetMaxConnections(1024)
         .SetConfigAction(
           procedure(Config: TMVCConfig)

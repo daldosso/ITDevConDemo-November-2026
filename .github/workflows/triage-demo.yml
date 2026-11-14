@@ -1,0 +1,55 @@
+name: Triage deployment failure
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [Deploy demo]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  collect-diagnostics:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: [self-hosted, windows, delphi]
+    steps:
+      - name: Collect deployment diagnostics
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $deployRoot = 'C:\ITDevCon-demo'
+          $report = Join-Path $env:RUNNER_TEMP 'itdevcon-deployment-triage.txt'
+
+          @(
+            'ITDevCon demo deployment triage'
+            "Generated UTC: $((Get-Date).ToUniversalTime().ToString('o'))"
+            "Triggered by: ${{ github.event_name }}"
+            ''
+            '--- Deployment directory ---'
+          ) | Set-Content -LiteralPath $report -Encoding utf8
+
+          if (Test-Path -LiteralPath $deployRoot) {
+            Get-ChildItem -LiteralPath $deployRoot -Recurse -Force |
+              Select-Object FullName, Length, LastWriteTimeUtc |
+              Format-Table -AutoSize | Out-String | Add-Content -LiteralPath $report
+          } else {
+            'Deployment directory does not exist.' | Add-Content -LiteralPath $report
+          }
+
+          "`n--- Current release metadata ---" | Add-Content -LiteralPath $report
+          $metadata = Join-Path $deployRoot 'current\release.json'
+          if (Test-Path -LiteralPath $metadata) {
+            Get-Content -LiteralPath $metadata -Raw | Add-Content -LiteralPath $report
+          } else {
+            'release.json is not present in current.' | Add-Content -LiteralPath $report
+          }
+
+          "TRIAGE_REPORT=$report" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Upload triage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: ITDevConDemo-triage-${{ github.run_number }}
+          path: ${{ env.TRIAGE_REPORT }}
+          if-no-files-found: error

@@ -1,0 +1,50 @@
+name: Backup demo deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: Reason for this backup
+        required: true
+        default: Manual backup before demo
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: [self-hosted, windows, delphi]
+    environment:
+      name: demo
+
+    steps:
+      - name: Archive the active deployment
+        shell: pwsh
+        env:
+          BACKUP_REASON: ${{ inputs.reason }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $deployRoot = 'C:\ITDevCon-demo'
+          $currentDir = Join-Path $deployRoot 'current'
+          $backupDir = Join-Path $deployRoot 'backups'
+          $backupName = "current-$((Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss'))"
+          $backupFile = Join-Path $backupDir "$backupName.zip"
+
+          if (-not (Test-Path -LiteralPath $currentDir)) {
+            throw "Nothing to back up: $currentDir does not exist."
+          }
+
+          New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
+          Compress-Archive -Path (Join-Path $currentDir '*') -DestinationPath $backupFile -CompressionLevel Optimal -Force
+          Set-Content -LiteralPath "$backupFile.reason.txt" -Value $env:BACKUP_REASON -Encoding utf8
+          "BACKUP_FILE=$backupFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ITDevConDemo-backup-${{ github.run_number }}
+          path: |
+            ${{ env.BACKUP_FILE }}
+            ${{ env.BACKUP_FILE }}.reason.txt
+          if-no-files-found: error

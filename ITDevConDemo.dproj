@@ -107,7 +107,6 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
-        <DCCReference Include="WebModuleUnit.pas"/>
         <DCCReference Include="ITDevConController.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>

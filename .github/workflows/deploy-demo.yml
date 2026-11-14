@@ -1,0 +1,93 @@
+name: Deploy demo
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-demo
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # The runner is also the simulated deployment machine for the talk.
+    runs-on: [self-hosted, windows, delphi]
+    environment:
+      name: demo
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore DelphiMVCFramework and LoggerPro
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path modules | Out-Null
+          git clone --depth 1 --branch v3.5.0-silicon-rc9 https://github.com/danieleteti/delphimvcframework.git modules/dmvcframework
+          git clone --depth 1 --branch v2.1.2 https://github.com/danieleteti/loggerpro.git modules/loggerpro
+
+      - name: Build Release executable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $rsvars = 'C:\Program Files (x86)\Embarcadero\Studio\37.0\bin\rsvars.bat'
+          if (-not (Test-Path -LiteralPath $rsvars)) {
+            throw "Delphi 13 environment script not found: $rsvars"
+          }
+          cmd /c "call `"$rsvars`" && msbuild ITDevConDemo.dproj /t:Build /p:Config=Release /p:Platform=Win64 /v:minimal"
+
+      - name: Deploy to the local demo folder
+        shell: pwsh
+        env:
+          RELEASE_ID: ${{ github.run_number }}-${{ github.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $deployRoot = 'C:\ITDevCon-demo'
+          $releaseId = $env:RELEASE_ID
+          $releaseDir = Join-Path $deployRoot "releases\$releaseId"
+          $currentDir = Join-Path $deployRoot 'current'
+          $sourceExe = Join-Path $env:GITHUB_WORKSPACE 'Win64\Release\ITDevConDemo.exe'
+
+          if (-not (Test-Path -LiteralPath $sourceExe)) {
+            throw "Release executable not found: $sourceExe"
+          }
+
+          # A deploy is reversible: archive the active version before promotion.
+          if (Test-Path -LiteralPath $currentDir) {
+            $backupDir = Join-Path $deployRoot 'backups'
+            New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
+            $backupFile = Join-Path $backupDir "before-$releaseId.zip"
+            Compress-Archive -Path (Join-Path $currentDir '*') -DestinationPath $backupFile -CompressionLevel Optimal -Force
+          }
+
+          New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+          Copy-Item -LiteralPath $sourceExe -Destination $releaseDir -Force
+          @{
+            release_id = $releaseId
+            commit = $env:GITHUB_SHA
+            deployed_at_utc = (Get-Date).ToUniversalTime().ToString('o')
+          } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $releaseDir 'release.json') -Encoding utf8
+
+          # "current" is the folder the server/operator would run in production.
+          if (Test-Path -LiteralPath $currentDir) {
+            Remove-Item -LiteralPath $currentDir -Recurse -Force
+          }
+          Copy-Item -LiteralPath $releaseDir -Destination $currentDir -Recurse -Force
+
+          if (-not (Test-Path -LiteralPath (Join-Path $currentDir 'ITDevConDemo.exe'))) {
+            throw 'Deployment verification failed: current executable is missing.'
+          }
+          Get-ChildItem -LiteralPath $currentDir | Select-Object Name, Length
+
+      - name: Publish deployment package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ITDevConDemo-deployed-${{ github.run_number }}
+          path: C:\ITDevCon-demo\current
+          if-no-files-found: error

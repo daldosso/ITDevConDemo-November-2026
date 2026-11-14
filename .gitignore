@@ -16,3 +16,8 @@ modules/
 *.~*
 *.bak
 *.tmp
+
+# Local caches and scratch files
+tmp/
+npm-cache/
+node_modules/
