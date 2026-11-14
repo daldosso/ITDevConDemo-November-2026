@@ -38,7 +38,7 @@ jobs:
           $controller = Get-Content -LiteralPath 'ITDevConController.pas' -Raw
           $project = Get-Content -LiteralPath 'ITDevConDemo.dproj' -Raw
 
-          foreach ($token in @('TMVCListener', 'SetPort(8080)', 'TITDevConController')) {
+          foreach ($token in @('TMVCListener', 'SetPort(LPort)', 'TITDevConController')) {
             if ($dpr -notmatch [regex]::Escape($token)) {
               throw "ITDevConDemo.dpr is missing expected token: $token"
             }

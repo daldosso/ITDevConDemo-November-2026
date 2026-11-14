@@ -14,8 +14,61 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  smoke-test:
+    name: Smoke test staged API
+    runs-on: [self-hosted, windows, delphi]
+    environment:
+      name: demo
+
+    steps:
+      - name: Start API and verify core endpoints
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sourceExe = 'C:\ITDevCon-demo\build-input\ITDevConDemo.exe'
+          $port = 18080
+          $baseUrl = "http://localhost:$port/api"
+
+          if (-not (Test-Path -LiteralPath $sourceExe -PathType Leaf)) {
+            throw "IDE build input not found: $sourceExe. Run the 'Package IDE build' workflow after compiling in Delphi."
+          }
+          if (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) {
+            throw "Test port $port is already in use."
+          }
+
+          $env:ITDEVCON_PORT = $port
+          $process = Start-Process -FilePath $sourceExe -PassThru -WindowStyle Hidden
+          try {
+            $deadline = (Get-Date).AddSeconds(20)
+            do {
+              try {
+                $hello = Invoke-RestMethod -Uri "$baseUrl/hello" -TimeoutSec 2
+                break
+              } catch {
+                Start-Sleep -Milliseconds 500
+              }
+            } while ((Get-Date) -lt $deadline)
+
+            if ($null -eq $hello) { throw 'API did not become ready within 20 seconds.' }
+            if ($hello.message -ne 'Hello ITDevCon!') { throw "Unexpected /hello response: $($hello | ConvertTo-Json -Compress)" }
+
+            $users = Invoke-RestMethod -Uri "$baseUrl/users" -TimeoutSec 5
+            if ($users.Count -lt 10) { throw "Expected at least 10 users, got $($users.Count)." }
+
+            $activity = Invoke-RestMethod -Uri "$baseUrl/activities/301" -TimeoutSec 5
+            if ($activity.id -ne 301 -or $activity.map.resource_state -ne 3) {
+              throw "Unexpected activity response: $($activity | ConvertTo-Json -Depth 5 -Compress)"
+            }
+            Write-Host 'API smoke tests passed.'
+          } finally {
+            if (-not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+            }
+          }
+
   deploy:
     # The runner is also the simulated deployment machine for the talk.
+    needs: smoke-test
     runs-on: [self-hosted, windows, delphi]
     environment:
       name: demo
